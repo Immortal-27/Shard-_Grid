@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShardGrid — Secure Control Panel</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <span class="logo-icon">🔐</span>
+                <h1>ShardGrid</h1>
+                <span class="subtitle">Optical Secret Sharing System</span>
+            </div>
+            <div class="connection-status" id="connectionStatus">
+                <span class="status-dot disconnected"></span>
+                <span>Disconnected</span>
+            </div>
+        </header>
+
+        <!-- Connection Panel -->
+        <section class="panel" id="connectPanel">
+            <h2>📡 Serial Connection</h2>
+            <p class="info-text">Connect the Arduino Uno via USB. Data is sent as plaintext to Uno → optically to Central ESP32, which handles all encryption and secret sharing.</p>
+            <div class="button-row">
+                <button id="connectBtn" class="btn btn-primary" onclick="connectSerial()">
+                    Connect Arduino Uno
+                </button>
+                <button id="disconnectBtn" class="btn btn-secondary" onclick="disconnectSerial()" disabled>
+                    Disconnect
+                </button>
+            </div>
+            <div class="port-info" id="portInfo"></div>
+        </section>
+
+        <!-- Key Management -->
+        <section class="panel" id="keyPanel">
+            <h2>🔑 Key Management</h2>
+            <div class="key-section">
+                <div class="key-display">
+                    <label>AES-256 Key (for ESP32 nodes — encryption happens on Central ESP32):</label>
+                    <div class="key-value" id="keyDisplay">No key generated</div>
+                </div>
+                <div class="button-row">
+                    <button class="btn btn-primary" onclick="generateKey()">
+                        Generate New Key
+                    </button>
+                    <button class="btn btn-warning" onclick="provisionKey()" id="provisionBtn" disabled>
+                        Provision to ESP32 Nodes
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Message Input -->
+        <section class="panel" id="messagePanel">
+            <h2>💬 Secret Message</h2>
+            <div class="message-section">
+                <textarea id="messageInput" placeholder="Enter your secret message here..." rows="4" maxlength="100"></textarea>
+                <div class="char-count"><span id="charCount">0</span>/100 characters</div>
+                <div class="button-row">
+                    <button class="btn btn-primary btn-large" onclick="sendMessage()" id="sendBtn" disabled>
+                        🔒 Encrypt & Transmit
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- SSS Visualization -->
+        <section class="panel" id="sssPanel" style="display:none;">
+            <h2>🧩 Shamir's Secret Sharing</h2>
+            <div class="sss-info">
+                <div class="sss-param">
+                    <span class="param-label">Threshold (k)</span>
+                    <span class="param-value">2</span>
+                </div>
+                <div class="sss-param">
+                    <span class="param-label">Total Shares (n)</span>
+                    <span class="param-value">3</span>
+                </div>
+                <div class="sss-param">
+                    <span class="param-label">Reconstruction</span>
+                    <span class="param-value">Any 2 of 3</span>
+                </div>
+            </div>
+            <div class="shares-display">
+                <div class="share-card" id="share1Card">
+                    <h3>Share 1 — Central</h3>
+                    <div class="share-data" id="share1Data">—</div>
+                    <div class="share-status" id="share1Status">Pending</div>
+                </div>
+                <div class="share-card" id="share2Card">
+                    <h3>Share 2 — Node A</h3>
+                    <div class="share-data" id="share2Data">—</div>
+                    <div class="share-status" id="share2Status">Pending</div>
+                </div>
+                <div class="share-card" id="share3Card">
+                    <h3>Share 3 — Node B</h3>
+                    <div class="share-data" id="share3Data">—</div>
+                    <div class="share-status" id="share3Status">Pending</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Node Status Monitor -->
+        <section class="panel" id="monitorPanel">
+            <h2>📊 Node Monitor</h2>
+            <div class="node-grid">
+                <div class="node-card" id="unoCard">
+                    <div class="node-header">
+                        <span class="node-icon">📟</span>
+                        <h3>Arduino Uno</h3>
+                    </div>
+                    <div class="node-role">Sender</div>
+                    <div class="node-status" id="unoStatus">
+                        <span class="status-indicator offline">●</span> Offline
+                    </div>
+                    <div class="node-detail" id="unoDetail">—</div>
+                </div>
+                <div class="node-card" id="centralCard">
+                    <div class="node-header">
+                        <span class="node-icon">🖥️</span>
+                        <h3>Central Node</h3>
+                    </div>
+                    <div class="node-role">ESP32 #1 — Processor</div>
+                    <div class="node-status" id="centralStatus">
+                        <span class="status-indicator offline">●</span> Unknown
+                    </div>
+                    <div class="node-detail" id="centralDetail">Receives from Uno, splits & distributes</div>
+                </div>
+                <div class="node-card" id="nodeACard">
+                    <div class="node-header">
+                        <span class="node-icon">💾</span>
+                        <h3>Node A</h3>
+                    </div>
+                    <div class="node-role">ESP32 #2 — Storage</div>
+                    <div class="node-status" id="nodeAStatus">
+                        <span class="status-indicator offline">●</span> Unknown
+                    </div>
+                    <div class="node-detail" id="nodeADetail">Stores Share 2</div>
+                </div>
+                <div class="node-card" id="nodeBCard">
+                    <div class="node-header">
+                        <span class="node-icon">💾</span>
+                        <h3>Node B</h3>
+                    </div>
+                    <div class="node-role">ESP32 #3 — Storage</div>
+                    <div class="node-status" id="nodeBStatus">
+                        <span class="status-indicator offline">●</span> Unknown
+                    </div>
+                    <div class="node-detail" id="nodeBDetail">Stores Share 3</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Emergency Controls -->
+        <section class="panel panel-danger" id="emergencyPanel">
+            <h2>⚠️ Emergency Controls</h2>
+            <p class="warning-text">These actions are irreversible. All cryptographic keys and stored shares will be permanently destroyed.</p>
+            <div class="button-row">
+                <button class="btn btn-danger" onclick="emergencyZeroize()" id="zeroizeBtn" disabled>
+                    🚨 Emergency Zeroize All Keys
+                </button>
+            </div>
+        </section>
+
+        <!-- Activity Log -->
+        <section class="panel">
+            <h2>📋 Activity Log</h2>
+            <div class="log-container" id="logContainer">
+                <div class="log-entry log-info">[System] ShardGrid Dashboard loaded</div>
+            </div>
+            <button class="btn btn-secondary btn-small" onclick="clearLog()">Clear Log</button>
+        </section>
+    </div>
+
+    <script src="js/shamir.js"></script>
+    <script src="js/crypto.js"></script>
+    <script src="js/serial.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
