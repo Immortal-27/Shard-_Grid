@@ -215,6 +215,12 @@ void setup() {
     transmitter.begin(TX_LED_PIN, false);
     Serial.println("[NODE-B] Optical TX initialized on pin 25");
 
+    // Test blink TX LED on startup so you can verify wiring
+    Serial.println("[NODE-B] Testing TX LED on GPIO 25...");
+    digitalWrite(TX_LED_PIN, HIGH);
+    delay(400);
+    digitalWrite(TX_LED_PIN, LOW);
+
     // Security
     security.begin();
     if (!security.loadKeyFromEEPROM()) {
@@ -301,7 +307,7 @@ void loop() {
     }
 
     // --- Optical receive ---
-    if (currentState == STATE_READY) {
+    if (!systemLocked) {
         OpticalFrame frame;
         if (receiver.receiveFrame(frame, 100)) {
             if (frame.valid) {

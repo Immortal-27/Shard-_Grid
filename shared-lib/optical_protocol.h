@@ -164,12 +164,21 @@ public:
         return inverted ? !val : (val == HIGH);
     }
 
-    // Receive a Manchester-encoded bit
-    // Sample at 1/4 and 3/4 of the bit period to detect transition direction
+    // Receive a Manchester-encoded bit (duration = BIT_TIME_MS)
+    // Bit 1: HIGH first half (0..BIT_TIME/2), LOW second half (BIT_TIME/2..BIT_TIME)
+    // Bit 0: LOW first half (0..BIT_TIME/2), HIGH second half (BIT_TIME/2..BIT_TIME)
     int receiveBitManchester() {
+        // Wait to center of first half
+        delay(BIT_TIME_MS / 4);
         bool first = readLDR();
+
+        // Wait to center of second half
         delay(BIT_TIME_MS / 2);
         bool second = readLDR();
+
+        // Wait out the remainder of the bit period
+        delay(BIT_TIME_MS - (BIT_TIME_MS / 4) - (BIT_TIME_MS / 2));
+
         // Manchester: HIGH→LOW = 1, LOW→HIGH = 0
         if (first && !second) return 1;
         if (!first && second) return 0;
@@ -199,8 +208,11 @@ public:
             delayMicroseconds(500);
         }
 
-        // --- Consume preamble bits (sync timing) ---
-        // We detected the start of preamble, consume the alternating pattern
+        // Rising edge detected at the middle of preamble bit 0 (t = BIT_TIME_MS / 2).
+        // Wait out the second half of bit 0 to align with bit 1's boundary:
+        delay(BIT_TIME_MS / 2);
+
+        // --- Consume remaining preamble bits (sync timing) ---
         for (int i = 0; i < PREAMBLE_BITS - 1; i++) {
             receiveBitManchester();
         }
@@ -208,7 +220,7 @@ public:
         // --- Read start delimiter ---
         int startByte = receiveByte();
         if (startByte != FRAME_START) {
-            Serial.println("[RX] Bad start delimiter");
+            Serial.printf("[RX] Bad start delimiter: 0x%02X\n", startByte);
             return false;
         }
 

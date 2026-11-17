@@ -378,6 +378,21 @@ void setup() {
     transmitterB.begin(TX_LED_B_PIN, false);
     Serial.println("[CENTRAL] Optical TX A & B initialized");
 
+    // Test blink TX LEDs on startup so you can physically verify wiring
+    Serial.println("[CENTRAL] Testing TX LEDs (LED A on GPIO 25, LED B on GPIO 26)...");
+    digitalWrite(TX_LED_A_PIN, HIGH);
+    digitalWrite(TX_LED_B_PIN, HIGH);
+    delay(500);
+    digitalWrite(TX_LED_A_PIN, LOW);
+    digitalWrite(TX_LED_B_PIN, LOW);
+    delay(300);
+    digitalWrite(TX_LED_A_PIN, HIGH);
+    digitalWrite(TX_LED_B_PIN, HIGH);
+    delay(500);
+    digitalWrite(TX_LED_A_PIN, LOW);
+    digitalWrite(TX_LED_B_PIN, LOW);
+    Serial.println("[CENTRAL] TX LED test complete");
+
     // Initialize security
     security.begin();
 
@@ -483,12 +498,16 @@ void loop() {
                             Serial.println("[CENTRAL] AES key received optically and stored");
                             Serial.println("KEY_SET_OK");
                             displayStatus("Provisioning key", "-> Node A...");
+                            Serial.println("[CENTRAL] Transmitting key to Node A via LED on GPIO 25 (~80s)...");
                             transmitterA.sendData(NODE_ID_CENTRAL, NODE_ID_A, MSG_TYPE_KEY_EXCH,
                                                   frame.payload, frame.len);
+                            Serial.println("[CENTRAL] Key sent to Node A");
                             delay(500);
                             displayStatus("Provisioning key", "-> Node B...");
+                            Serial.println("[CENTRAL] Transmitting key to Node B via LED on GPIO 26 (~80s)...");
                             transmitterB.sendData(NODE_ID_CENTRAL, NODE_ID_B, MSG_TYPE_KEY_EXCH,
                                                   frame.payload, frame.len);
+                            Serial.println("[CENTRAL] Key sent to Node B");
                             Serial.println("[CENTRAL] Key distributed to Node A & B");
                             displayStatus("Key provisioned!", "All 3 nodes ready", "Tamper: ARMED");
                         } else {
