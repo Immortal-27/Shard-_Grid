@@ -51,6 +51,8 @@
 // --- Pin Definitions: ESP32 Central Node ---
 #ifdef CENTRAL_NODE
   #define RX_LDR_PIN      34      // LDR from Arduino Uno
+  #define RX_LDR_A_PIN    35      // LDR from Node A (return path)
+  #define RX_LDR_B_PIN    32      // LDR from Node B (return path)
   #define TX_LED_A_PIN    25      // LED to Node A
   #define TX_LED_B_PIN    26      // LED to Node B
   #define TAMPER_PIN      27      // Tamper detection sensor
@@ -62,6 +64,7 @@
 // --- Pin Definitions: ESP32 Node A ---
 #ifdef NODE_A
   #define RX_LDR_PIN      34      // LDR from Central Node
+  #define TX_LED_PIN      25      // LED back to Central Node
   #define TAMPER_PIN      27      // Tamper detection sensor
   #define OLED_SDA        21
   #define OLED_SCL        22
@@ -71,6 +74,7 @@
 // --- Pin Definitions: ESP32 Node B ---
 #ifdef NODE_B
   #define RX_LDR_PIN      34      // LDR from Central Node
+  #define TX_LED_PIN      25      // LED back to Central Node
   #define TAMPER_PIN      27      // Tamper detection sensor
   #define OLED_SDA        21
   #define OLED_SCL        22

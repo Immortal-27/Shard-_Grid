@@ -1,7 +1,8 @@
 // ============================================================================
 //  ShardGrid — ESP32 Node A (Storage Node)
 //  Receives encrypted share from Central Node via optical link
-//  Stores share securely, tamper detection + key zeroization
+//  Stores share securely, then SENDS IT BACK to Central for reconstruction
+//  Tamper detection + key zeroization
 // ============================================================================
 
 #define NODE_A
@@ -17,7 +18,8 @@
 
 // --- Hardware ---
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
-OpticalRX receiver;
+OpticalRX receiver;        // Receives from Central Node
+OpticalTX transmitter;     // Sends share back to Central Node
 Security security;
 
 // --- State ---
@@ -26,6 +28,8 @@ enum NodeState {
     STATE_READY,
     STATE_RECEIVING,
     STATE_STORED,
+    STATE_SENDING_BACK,
+    STATE_DONE,
     STATE_TAMPERED,
     STATE_LOCKED
 };
@@ -60,12 +64,14 @@ void displayStatus(const char* line1, const char* line2 = "",
 
     display.setCursor(0, 54);
     switch (currentState) {
-        case STATE_INIT:     display.println("[INIT]"); break;
-        case STATE_READY:    display.println("[READY]"); break;
-        case STATE_RECEIVING:display.println("[RECEIVING]"); break;
-        case STATE_STORED:   display.println("[SHARE STORED]"); break;
-        case STATE_TAMPERED: display.println("[!!! TAMPERED !!!]"); break;
-        case STATE_LOCKED:   display.println("[LOCKED]"); break;
+        case STATE_INIT:        display.println("[INIT]"); break;
+        case STATE_READY:       display.println("[READY]"); break;
+        case STATE_RECEIVING:   display.println("[RECEIVING]"); break;
+        case STATE_STORED:      display.println("[SHARE STORED]"); break;
+        case STATE_SENDING_BACK:display.println("[SENDING BACK]"); break;
+        case STATE_DONE:        display.println("[DONE]"); break;
+        case STATE_TAMPERED:    display.println("[!!! TAMPERED !!!]"); break;
+        case STATE_LOCKED:      display.println("[LOCKED]"); break;
     }
     display.display();
 }
@@ -138,19 +144,51 @@ void processFrame(const OpticalFrame& frame) {
         security.saveShareToEEPROM(storedShareX, &plainShare[1], storedShareLen);
         shareStored = true;
 
-        // Wipe plaintext from RAM
-        memset(plainShare, 0, sizeof(plainShare));
-
         currentState = STATE_STORED;
         char statusBuf[32];
         snprintf(statusBuf, sizeof(statusBuf), "Share %d stored", storedShareX);
         char lenBuf[32];
         snprintf(lenBuf, sizeof(lenBuf), "%d bytes secured", storedShareLen);
-        displayStatus(statusBuf, lenBuf, "Tamper: ARMED");
+        displayStatus(statusBuf, lenBuf, "Sending back...");
 
         Serial.printf("[NODE-A] Share %d stored (%d bytes)\n",
                       storedShareX, storedShareLen);
         Serial.println("SHARE_STORED_OK");
+
+        // --- SEND THE SHARE BACK TO CENTRAL for reconstruction ---
+        currentState = STATE_SENDING_BACK;
+        displayStatus("Sending share", "back to Central...");
+        Serial.printf("[NODE-A] Sending share %d back to Central\n", storedShareX);
+
+        // Re-encrypt the share before sending back
+        // plainShare still has [shareX][data...] from the decryption above
+        uint8_t encReturn[MAX_PAYLOAD_LEN];
+        int encLen = security.encrypt(plainShare, ptLen, encReturn, MAX_PAYLOAD_LEN);
+
+        // Wipe plaintext from RAM
+        memset(plainShare, 0, sizeof(plainShare));
+
+        if (encLen < 0) {
+            Serial.println("[NODE-A] Failed to encrypt return share!");
+            displayStatus("ENCRYPT FAILED!", "Cannot return share");
+            currentState = STATE_STORED;
+            return;
+        }
+
+        // Small delay to let Central switch to listening mode
+        delay(2000);
+
+        // Transmit share back to Central via optical link
+        transmitter.sendData(NODE_ID_A, NODE_ID_CENTRAL, MSG_TYPE_DATA,
+                             encReturn, (uint8_t)encLen);
+
+        memset(encReturn, 0, sizeof(encReturn));
+
+        Serial.println("[NODE-A] Share sent back to Central!");
+        Serial.println("SHARE_RETURNED_OK");
+
+        currentState = STATE_DONE;
+        displayStatus("Share returned!", "To Central Node", "Waiting...");
     }
 
     if (frame.type == MSG_TYPE_HEARTBEAT) {
@@ -173,6 +211,11 @@ void setup() {
 
     // Optical receiver (from Central Node)
     receiver.begin(RX_LDR_PIN, true);
+    Serial.println("[NODE-A] Optical RX initialized on pin 34");
+
+    // Optical transmitter (back to Central Node)
+    transmitter.begin(TX_LED_PIN, false);
+    Serial.println("[NODE-A] Optical TX initialized on pin 25");
 
     // Security
     security.begin();
@@ -191,7 +234,7 @@ void setup() {
     if (security.loadShareFromEEPROM(storedShareX, existingData, existingLen)) {
         shareStored = true;
         storedShareLen = existingLen;
-        currentState = STATE_STORED;
+        currentState = STATE_DONE;
         char buf[32];
         snprintf(buf, sizeof(buf), "Share %d loaded", storedShareX);
         displayStatus(buf, "From EEPROM", "Tamper: ARMED");
@@ -260,12 +303,14 @@ void loop() {
     }
 
     // --- Optical receive ---
-    OpticalFrame frame;
-    if (receiver.receiveFrame(frame, 100)) {
-        if (frame.valid) {
-            Serial.printf("[NODE-A] Frame: type=0x%02X from=0x%02X dst=0x%02X\n",
-                          frame.type, frame.src, frame.dst);
-            processFrame(frame);
+    if (currentState == STATE_READY) {
+        OpticalFrame frame;
+        if (receiver.receiveFrame(frame, 100)) {
+            if (frame.valid) {
+                Serial.printf("[NODE-A] Frame: type=0x%02X from=0x%02X dst=0x%02X\n",
+                              frame.type, frame.src, frame.dst);
+                processFrame(frame);
+            }
         }
     }
 

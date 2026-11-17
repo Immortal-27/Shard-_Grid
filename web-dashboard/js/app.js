@@ -95,12 +95,29 @@ function handleSerialData(line) {
     }
     else if (line === 'SHARE_DIST_OK') {
         log('✅ All shares distributed successfully!', 'success');
+        log('⏳ Waiting for Node A & B to return shares to Central...', 'info');
         updateShareStatus(1, 'stored');
-        updateShareStatus(2, 'stored');
-        updateShareStatus(3, 'stored');
-        document.getElementById('centralDetail').textContent = 'Shares distributed';
+        updateShareStatus(2, 'sent');
+        updateShareStatus(3, 'sent');
+        document.getElementById('centralDetail').textContent = 'Waiting for return shares';
         document.getElementById('centralStatus').innerHTML =
             '<span class="status-indicator online">●</span> Active';
+    }
+    else if (line.includes('Received share') && line.includes('back from Node A')) {
+        log('📨 Central received share back from Node A', 'success');
+        updateShareStatus(2, 'stored');
+        document.getElementById('nodeADetail').textContent = 'Share returned';
+    }
+    else if (line.includes('Received share') && line.includes('back from Node B')) {
+        log('📨 Central received share back from Node B', 'success');
+        updateShareStatus(3, 'stored');
+        document.getElementById('nodeBDetail').textContent = 'Share returned';
+    }
+    else if (line === 'RECONSTRUCT_OK') {
+        log('🎉 Message reconstructed and displayed on OLED!', 'success');
+        document.getElementById('centralDetail').textContent = 'Message on OLED!';
+        document.getElementById('centralStatus').innerHTML =
+            '<span class="status-indicator online">●</span> Message Displayed';
     }
     else if (line === 'SHARE_STORED_OK') {
         log('Share stored on remote node', 'success');

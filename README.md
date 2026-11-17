@@ -9,24 +9,32 @@ A hardware security project that transmits encrypted messages between microcontr
 ## Architecture
 
 ```
-   ┌──────────┐          ┌──────────────────┐         ┌──────────┐
-   │    PC    │   USB    │  Arduino Uno     │  LED→   │ ESP32    │
-   │ Browser  │─────────▶│  (Sender)        │──LDR──▶│ Central  │
-   │Dashboard │          │  Pin 8 = LED     │         │ Node     │
-   └──────────┘          └──────────────────┘         └────┬─────┘
-                                                           │
-                                              SSS Split + Encrypt
-                                                      ┌────┴────┐
-                                                LED→LDR│        │LED→LDR
-                                                      ▼        ▼
-                                                ┌────────┐ ┌────────┐
-                                                │ ESP32  │ │ ESP32  │
-                                                │ Node A │ │ Node B │
-                                                │(Share2)│ │(Share3)│
-                                                └────────┘ └────────┘
+   ┌──────────┐          ┌──────────────────┐         ┌──────────────┐
+   │    PC    │   USB    │  Arduino Uno     │  LED→   │ ESP32        │
+   │ Browser  │─────────▶│  (Sender)        │──LDR──▶│ Central Node │
+   │Dashboard │          │  Pin 8 = LED     │  ch1   │              │
+   └──────────┘          └──────────────────┘        └──────┬───────┘
+                                                            │
+                                               SSS Split + Encrypt
+                                                     ┌──────┴──────┐
+                                               LED→LDR│            │LED→LDR
+                                                ch2   ▼            ▼  ch3
+                                               ┌──────────┐ ┌──────────┐
+                                               │ ESP32    │ │ ESP32    │
+                                               │ Node A   │ │ Node B   │
+                                               │ (Share2) │ │ (Share3) │
+                                               └────┬─────┘ └────┬─────┘
+                                                    │LED→LDR      │LED→LDR
+                                                    │  ch4        │  ch5
+                                                    ▼             ▼
+                                               ┌──────────────────────┐
+                                               │   Central Node      │
+                                               │   Reconstructs msg  │
+                                               │   Displays on OLED  │
+                                               └──────────────────────┘
 ```
 
-**Data Flow:**
+**Data Flow (Round-Trip):**
 1. User enters a secret message in the web dashboard
 2. Dashboard sends the **plaintext** message via USB Serial to Arduino Uno
 3. Uno transmits the plaintext **optically** (LED → LDR) to the Central ESP32
@@ -34,8 +42,9 @@ A hardware security project that transmits encrypted messages between microcontr
 5. Central ESP32 **splits** the message into 3 shares using Shamir's Secret Sharing (k=2, n=3)
 6. Central ESP32 keeps Share 1, **encrypts** Shares 2 & 3 with AES-256-GCM
 7. Central ESP32 transmits encrypted Share 2 to Node A and Share 3 to Node B **optically**
-8. Node A & B decrypt and store their shares
-9. Any 2 of the 3 shares can reconstruct the original message
+8. Node A & B decrypt, store their shares, then **send them back** to Central **optically**
+9. Central receives both shares back, **reconstructs** the original message via Lagrange interpolation
+10. Central **displays the reconstructed message on its OLED**
 
 > **Note:** All encryption happens on the Central ESP32 — the Uno is a dumb optical relay.
 
@@ -94,9 +103,9 @@ ShardGrid/
 |-----|------------------------------|
 | 1   | Arduino Uno R3               |
 | 3   | ESP32 DevKit v1              |
-| 3   | LDR modules (with digital out) |
-| 3   | Bright LEDs (white or IR)    |
-| 3   | 220Ω resistors               |
+| 5   | LDR modules (with digital out) |
+| 5   | Bright LEDs (white or IR)    |
+| 5   | 220Ω resistors               |
 | 3   | SSD1306 OLED displays (128×64, I²C) |
 | 3   | Micro switches (normally closed) |
 | 1   | Opaque enclosure / box       |
