@@ -21,6 +21,7 @@
 
 // --- Hardware objects ---
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+bool oledAvailable = false;  // Set true only if OLED init succeeds
 OpticalRX receiverUno;      // Receives from Arduino Uno
 OpticalRX receiverA;        // Receives share back from Node A
 OpticalRX receiverB;        // Receives share back from Node B
@@ -55,9 +56,10 @@ SSSShareSet returnedShareB;
 unsigned long waitSharesStart = 0;
 #define SHARE_RETURN_TIMEOUT  120000  // 2 minutes max wait for shares to come back
 
-// --- OLED Display Helpers ---
+// --- OLED Display Helpers (safe when OLED is damaged/absent) ---
 void displayStatus(const char* line1, const char* line2 = "",
                    const char* line3 = "") {
+    if (!oledAvailable) return;  // Skip if OLED is damaged
     display.clearDisplay();
     display.setTextSize(1);
     display.setTextColor(SSD1306_WHITE);
@@ -95,6 +97,7 @@ void displayStatus(const char* line1, const char* line2 = "",
 }
 
 void displayTamperAlert() {
+    if (!oledAvailable) return;  // Skip if OLED is damaged
     display.clearDisplay();
     display.setTextSize(2);
     display.setTextColor(SSD1306_WHITE);
@@ -112,6 +115,7 @@ void displayTamperAlert() {
 
 // --- Display reconstructed message on OLED ---
 void displayReconstructedMessage(const uint8_t* message, uint8_t msgLen) {
+    if (!oledAvailable) return;  // Skip if OLED is damaged
     display.clearDisplay();
     display.setTextSize(1);
     display.setTextColor(SSD1306_WHITE);
@@ -355,11 +359,15 @@ void setup() {
     Serial.println("=== ShardGrid Central Node (ESP32 #1) ===");
     Serial.println("[CENTRAL] Initializing...");
 
-    // Initialize OLED
+    // Initialize OLED (optional — works without it via Network Display)
     Wire.begin(OLED_SDA, OLED_SCL);
     if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
-        Serial.println("[CENTRAL] OLED init failed!");
-        // Continue without display
+        Serial.println("[CENTRAL] OLED init failed — using Network Display instead");
+        oledAvailable = false;
+        // Continue without display — the API server shows everything
+    } else {
+        oledAvailable = true;
+        Serial.println("[CENTRAL] OLED initialized OK");
     }
     displayStatus("Booting...");
 

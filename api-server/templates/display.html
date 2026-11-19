@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShardGrid — Network Display</title>
+    <style>
+        :root {
+            --bg: #0a0a0f;
+            --surface: #12121a;
+            --surface-2: #1a1a26;
+            --border: #2a2a3a;
+            --text: #e4e4ef;
+            --text-dim: #8888a0;
+            --accent: #6c63ff;
+            --accent-glow: rgba(108, 99, 255, 0.15);
+            --green: #34d399;
+            --green-glow: rgba(52, 211, 153, 0.15);
+            --red: #f87171;
+            --red-glow: rgba(248, 113, 113, 0.15);
+            --amber: #fbbf24;
+            --amber-glow: rgba(251, 191, 36, 0.15);
+            --cyan: #22d3ee;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 0;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 24px;
+        }
+        .header h1 {
+            font-size: 1.3rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+        }
+        .header .badge {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-weight: 600;
+        }
+        .badge-online {
+            background: var(--green-glow);
+            color: var(--green);
+            border: 1px solid rgba(52, 211, 153, 0.3);
+        }
+        .badge-offline {
+            background: var(--red-glow);
+            color: var(--red);
+            border: 1px solid rgba(248, 113, 113, 0.3);
+        }
+
+        /* OLED Replacement Panel */
+        .oled-panel {
+            background: #000;
+            border: 2px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            margin-bottom: 24px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+            min-height: 180px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        .oled-panel::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            opacity: 0.5;
+        }
+        .oled-label {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: var(--text-dim);
+            margin-bottom: 8px;
+        }
+        .oled-title {
+            font-size: 0.85rem;
+            color: var(--accent);
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            margin-bottom: 20px;
+        }
+        .oled-message {
+            font-family: 'Courier New', 'Consolas', monospace;
+            font-size: 2.4rem;
+            font-weight: 700;
+            color: #fff;
+            text-shadow: 0 0 20px rgba(108, 99, 255, 0.5), 0 0 60px rgba(108, 99, 255, 0.2);
+            word-break: break-all;
+            line-height: 1.3;
+            transition: all 0.5s ease;
+        }
+        .oled-message.waiting {
+            font-size: 1rem;
+            color: var(--text-dim);
+            text-shadow: none;
+        }
+        .oled-meta {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            margin-top: 16px;
+            letter-spacing: 0.03em;
+        }
+        .oled-panel.tampered {
+            border-color: var(--red);
+            box-shadow: 0 0 40px var(--red-glow);
+        }
+        .oled-panel.tampered .oled-message {
+            color: var(--red);
+            text-shadow: 0 0 20px var(--red-glow);
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 10px var(--accent-glow); }
+            50% { box-shadow: 0 0 30px var(--accent-glow), 0 0 60px rgba(108, 99, 255, 0.08); }
+        }
+        .oled-panel.has-message {
+            animation: pulse-glow 3s ease-in-out infinite;
+            border-color: var(--accent);
+        }
+
+        /* Status Grid */
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .status-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .status-card .label {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-dim);
+            margin-bottom: 6px;
+        }
+        .status-card .value {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+        .dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .dot-green { background: var(--green); box-shadow: 0 0 8px var(--green); }
+        .dot-red { background: var(--red); box-shadow: 0 0 8px var(--red); }
+        .dot-amber { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+        .dot-dim { background: #555; }
+
+        /* Share Status */
+        .share-row {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .share-pill {
+            flex: 1;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px 16px;
+            text-align: center;
+        }
+        .share-pill .share-name {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-dim);
+            margin-bottom: 4px;
+        }
+        .share-pill .share-status {
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .share-pill.received {
+            border-color: var(--green);
+            background: var(--green-glow);
+        }
+        .share-pill.waiting {
+            border-color: var(--amber);
+            background: var(--amber-glow);
+        }
+
+        /* Event Log */
+        .log-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        .log-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-dim);
+            display: flex;
+            justify-content: space-between;
+        }
+        .log-scroll {
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 8px 0;
+        }
+        .log-entry {
+            padding: 5px 16px;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 0.75rem;
+            line-height: 1.6;
+            border-left: 3px solid transparent;
+        }
+        .log-entry .time {
+            color: var(--text-dim);
+            margin-right: 8px;
+        }
+        .log-entry.info { border-left-color: var(--accent); }
+        .log-entry.success { border-left-color: var(--green); color: var(--green); }
+        .log-entry.error { border-left-color: var(--red); color: var(--red); }
+        .log-entry.danger {
+            border-left-color: var(--red);
+            color: var(--red);
+            background: var(--red-glow);
+            font-weight: 600;
+        }
+        .log-entry.data { border-left-color: var(--cyan); color: var(--cyan); }
+        .log-entry.share { border-left-color: var(--amber); color: var(--amber); }
+        .log-entry.reconstruct {
+            border-left-color: var(--green);
+            color: var(--green);
+            background: var(--green-glow);
+            font-weight: 700;
+            font-size: 0.85rem;
+            padding: 8px 16px;
+        }
+        .log-entry.warning { border-left-color: var(--amber); color: var(--amber); }
+
+        .log-scroll::-webkit-scrollbar { width: 6px; }
+        .log-scroll::-webkit-scrollbar-track { background: transparent; }
+        .log-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 20px;
+            font-size: 0.65rem;
+            color: var(--text-dim);
+            letter-spacing: 0.05em;
+        }
+
+        /* Connection indicator */
+        .ws-indicator {
+            position: fixed;
+            top: 12px;
+            right: 12px;
+            font-size: 0.6rem;
+            padding: 4px 10px;
+            border-radius: 20px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            z-index: 100;
+        }
+        .ws-indicator.connected { border-color: var(--green); color: var(--green); }
+        .ws-indicator.disconnected { border-color: var(--red); color: var(--red); }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .container { padding: 12px; }
+            .oled-message { font-size: 1.6rem; }
+            .status-grid { grid-template-columns: 1fr 1fr; }
+            .share-row { flex-wrap: wrap; }
+        }
+    </style>
+</head>
+<body>
+    <!-- WebSocket status -->
+    <div class="ws-indicator disconnected" id="wsIndicator">● DISCONNECTED</div>
+
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div>
+                <h1>ShardGrid — Network Display</h1>
+                <div style="font-size: 0.7rem; color: var(--text-dim); margin-top: 2px;">
+                    OLED Replacement · LAN-Accessible Live Monitor
+                </div>
+            </div>
+            <div>
+                <span class="badge badge-offline" id="serialBadge">SERIAL OFFLINE</span>
+            </div>
+        </div>
+
+        <!-- OLED Replacement — The Main Display -->
+        <div class="oled-panel" id="oledPanel">
+            <div class="oled-label">RECONSTRUCTED MESSAGE OUTPUT</div>
+            <div class="oled-title">== MSG RECOVERED ==</div>
+            <div class="oled-message waiting" id="oledMessage">
+                Waiting for transmission…
+            </div>
+            <div class="oled-meta" id="oledMeta"></div>
+        </div>
+
+        <!-- Status Cards -->
+        <div class="status-grid">
+            <div class="status-card">
+                <div class="label">System State</div>
+                <div class="value" id="sysState">
+                    <span class="dot dot-dim"></span> INIT
+                </div>
+            </div>
+            <div class="status-card">
+                <div class="label">Serial Link</div>
+                <div class="value" id="serialState">
+                    <span class="dot dot-dim"></span> Waiting
+                </div>
+            </div>
+            <div class="status-card">
+                <div class="label">AES Key</div>
+                <div class="value" id="keyState">
+                    <span class="dot dot-dim"></span> Not loaded
+                </div>
+            </div>
+            <div class="status-card">
+                <div class="label">Last Plaintext Input</div>
+                <div class="value" id="ptState" style="font-size:0.85rem; word-break:break-all;">—</div>
+            </div>
+        </div>
+
+        <!-- Share Status -->
+        <div class="share-row">
+            <div class="share-pill" id="shareA">
+                <div class="share-name">Share A (Node A)</div>
+                <div class="share-status" id="shareAStatus">PENDING</div>
+            </div>
+            <div class="share-pill" id="shareB">
+                <div class="share-name">Share B (Node B)</div>
+                <div class="share-status" id="shareBStatus">PENDING</div>
+            </div>
+        </div>
+
+        <!-- Event Log -->
+        <div class="log-panel">
+            <div class="log-header">
+                <span>Event Stream</span>
+                <span id="eventCount">0 events</span>
+            </div>
+            <div class="log-scroll" id="logScroll">
+                <div class="log-entry info">
+                    <span class="time">--:--:--</span>
+                    Dashboard loaded. Connecting to server…
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            ShardGrid Optical Secret Sharing · Network Display v1.0 · LAN API Server
+        </div>
+    </div>
+
+    <script>
+        // --- WebSocket Connection ---
+        let ws = null;
+        let reconnectTimer = null;
+
+        function connectWS() {
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+            ws.onopen = () => {
+                document.getElementById('wsIndicator').className = 'ws-indicator connected';
+                document.getElementById('wsIndicator').textContent = '● LIVE';
+                addLogEntry('WebSocket connected to server', 'success');
+            };
+
+            ws.onclose = () => {
+                document.getElementById('wsIndicator').className = 'ws-indicator disconnected';
+                document.getElementById('wsIndicator').textContent = '● DISCONNECTED';
+                // Auto-reconnect
+                reconnectTimer = setTimeout(connectWS, 2000);
+            };
+
+            ws.onerror = () => {};
+
+            ws.onmessage = (evt) => {
+                const msg = JSON.parse(evt.data);
+                handleMessage(msg);
+            };
+        }
+
+        function handleMessage(msg) {
+            switch (msg.type) {
+                case 'init':
+                    applyInitState(msg.data, msg.events);
+                    break;
+                case 'reconstructed':
+                    showReconstructed(msg.data);
+                    break;
+                case 'event':
+                    addLogEntry(msg.data.message, msg.data.type, msg.data.time);
+                    break;
+                case 'state':
+                    updateState(msg.data.state);
+                    break;
+                case 'share':
+                    updateShare(msg.data.node, msg.data.status);
+                    break;
+                case 'serial':
+                    updateSerial(msg.data);
+                    break;
+            }
+        }
+
+        // --- Display Updates ---
+
+        function showReconstructed(data) {
+            const panel = document.getElementById('oledPanel');
+            const msgEl = document.getElementById('oledMessage');
+            const metaEl = document.getElementById('oledMeta');
+
+            panel.className = 'oled-panel has-message';
+            msgEl.className = 'oled-message';
+            msgEl.textContent = data.message;
+
+            const ts = data.timestamp ? new Date(data.timestamp).toLocaleTimeString() : '';
+            metaEl.textContent = `${data.length} bytes recovered · ${ts}`;
+
+            updateState('DISPLAY_MSG');
+        }
+
+        function applyInitState(data, events) {
+            // Apply current state
+            if (data.reconstructed_message) {
+                showReconstructed({
+                    message: data.reconstructed_message,
+                    length: data.reconstructed_len,
+                    timestamp: data.reconstructed_at,
+                });
+            }
+
+            updateState(data.state);
+
+            if (data.serial_connected) {
+                updateSerial({ connected: true, port: data.serial_port });
+            }
+
+            if (data.key_loaded) {
+                document.getElementById('keyState').innerHTML =
+                    '<span class="dot dot-green"></span> Loaded';
+            }
+
+            if (data.last_plaintext) {
+                document.getElementById('ptState').textContent =
+                    `"${data.last_plaintext}" (${data.last_plaintext_len}B)`;
+            }
+
+            if (data.share_a_received) updateShare('A', 'received');
+            if (data.share_b_received) updateShare('B', 'received');
+
+            if (data.tampered) {
+                document.getElementById('oledPanel').classList.add('tampered');
+            }
+
+            // Load event history
+            if (events && events.length) {
+                events.forEach(e => addLogEntry(e.message, e.type, e.time));
+            }
+        }
+
+        function updateState(s) {
+            const el = document.getElementById('sysState');
+            const dotClass = {
+                'READY': 'dot-green',
+                'PROCESSING': 'dot-amber',
+                'TRANSMITTING': 'dot-amber',
+                'WAITING_SHARES': 'dot-amber',
+                'RECONSTRUCTING': 'dot-green',
+                'DISPLAY_MSG': 'dot-green',
+                'TAMPERED': 'dot-red',
+                'LOCKED': 'dot-red',
+            }[s] || 'dot-dim';
+
+            el.innerHTML = `<span class="dot ${dotClass}"></span> ${s}`;
+        }
+
+        function updateSerial(data) {
+            const badge = document.getElementById('serialBadge');
+            const el = document.getElementById('serialState');
+
+            if (data.connected) {
+                badge.className = 'badge badge-online';
+                badge.textContent = `SERIAL: ${data.port || 'OK'}`;
+                el.innerHTML = '<span class="dot dot-green"></span> Connected';
+            } else {
+                badge.className = 'badge badge-offline';
+                badge.textContent = 'SERIAL OFFLINE';
+                el.innerHTML = '<span class="dot dot-red"></span> Disconnected';
+            }
+        }
+
+        function updateShare(node, status) {
+            const id = node === 'A' ? 'shareA' : 'shareB';
+            const statusId = node === 'A' ? 'shareAStatus' : 'shareBStatus';
+            const pill = document.getElementById(id);
+            const statusEl = document.getElementById(statusId);
+
+            if (status === 'received') {
+                pill.className = 'share-pill received';
+                statusEl.textContent = 'RECEIVED ✓';
+            } else {
+                pill.className = 'share-pill waiting';
+                statusEl.textContent = 'WAITING…';
+            }
+        }
+
+        function addLogEntry(message, type = 'info', time = null) {
+            const scroll = document.getElementById('logScroll');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+
+            const ts = time || new Date().toLocaleTimeString('en-US', {
+                hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit'
+            });
+
+            entry.innerHTML = `<span class="time">${ts}</span>${escapeHtml(message)}`;
+            scroll.appendChild(entry);
+            scroll.scrollTop = scroll.scrollHeight;
+
+            // Update counter
+            const count = scroll.children.length;
+            document.getElementById('eventCount').textContent = `${count} events`;
+
+            // Keep max 200 entries in DOM
+            while (scroll.children.length > 200) {
+                scroll.removeChild(scroll.firstChild);
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // --- Start ---
+        connectWS();
+    </script>
+</body>
+</html>

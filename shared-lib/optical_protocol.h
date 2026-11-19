@@ -164,25 +164,40 @@ public:
         return inverted ? !val : (val == HIGH);
     }
 
-    // Receive a Manchester-encoded bit (duration = BIT_TIME_MS)
-    // Bit 1: HIGH first half (0..BIT_TIME/2), LOW second half (BIT_TIME/2..BIT_TIME)
-    // Bit 0: LOW first half (0..BIT_TIME/2), HIGH second half (BIT_TIME/2..BIT_TIME)
+    // Self-synchronizing, noise-filtered Manchester bit receiver
+    // Locks onto the physical mid-bit clock transition of EVERY bit to eliminate drift!
+    // Bit 1: HIGH -> LOW (falling edge at mid-bit)
+    // Bit 0: LOW -> HIGH (rising edge at mid-bit)
     int receiveBitManchester() {
-        // Wait to center of first half
-        delay(BIT_TIME_MS / 4);
-        bool first = readLDR();
+        // Step 1: Wait past the boundary transition (80% of bit time = ~200ms)
+        // This ensures even slow LDR turn-off latency (~50-70ms from t=125ms) has fully settled!
+        delay(BIT_TIME_MS * 80 / 100);
 
-        // Wait to center of second half
-        delay(BIT_TIME_MS / 2);
-        bool second = readLDR();
+        // Step 2: Read stable level in first half of the bit
+        bool levelBefore = readLDR();
 
-        // Wait out the remainder of the bit period
-        delay(BIT_TIME_MS - (BIT_TIME_MS / 4) - (BIT_TIME_MS / 2));
+        // Step 3: Wait for the mid-bit transition (expected at ~250ms, i.e. ~50ms from now)
+        unsigned long tStart = millis();
+        while (true) {
+            if (readLDR() != levelBefore) {
+                // Potential edge! Debounce 2ms to reject analog noise spikes:
+                delay(2);
+                if (readLDR() != levelBefore) {
+                    // Confirmed optical transition edge
+                    break;
+                }
+            }
+            // Timeout if no transition arrives within 120ms (reaches t=320ms)
+            if (millis() - tStart > 120) {
+                return -1; // Edge timeout
+            }
+            delayMicroseconds(200);
+        }
 
-        // Manchester: HIGH→LOW = 1, LOW→HIGH = 0
-        if (first && !second) return 1;
-        if (!first && second) return 0;
-        return -1; // Error — no valid transition
+        // Step 4: Determine bit directly from transition direction:
+        // If levelBefore was HIGH -> transition was HIGH to LOW = Bit 1
+        // If levelBefore was LOW  -> transition was LOW to HIGH = Bit 0
+        return levelBefore ? 1 : 0;
     }
 
     // Receive a full byte (MSB first)
@@ -196,31 +211,59 @@ public:
         return result;
     }
 
+    // Drain optical channel until it has been dark/quiet for at least 600ms
+    void drainUntilIdle() {
+        unsigned long darkStart = millis();
+        while (millis() - darkStart < (BIT_TIME_MS * 3)) {
+            if (readLDR()) {
+                darkStart = millis(); // Reset timer if light is still detected
+            }
+            delay(10);
+        }
+    }
+
     // Wait for preamble pattern, then receive a complete frame
     // Returns true if a valid frame was received
     bool receiveFrame(OpticalFrame& frame, unsigned long timeoutMs = 30000) {
         unsigned long startTime = millis();
         frame.valid = false;
 
-        // --- Wait for activity (first HIGH from preamble) ---
+        // --- Wait for activity (first HIGH from preamble bit 0) ---
         while (!readLDR()) {
             if (millis() - startTime > timeoutMs) return false;
             delayMicroseconds(500);
         }
 
-        // Rising edge detected at the middle of preamble bit 0 (t = BIT_TIME_MS / 2).
-        // Wait out the second half of bit 0 to align with bit 1's boundary:
+        // Debounce 2ms to verify real light
+        delay(2);
+        if (!readLDR()) return false;
+
+        // We've caught the mid-bit rising edge of preamble bit 0 (a '0' bit: LOW→HIGH).
+        // receiveBitManchester() expects to be called right after a mid-bit edge:
+        //   it waits 80% of BIT_TIME to skip past the boundary, then looks for the
+        //   next mid-bit transition.  But we arrived here partway through the edge
+        //   detection + 2ms debounce — we need to wait the remaining half-bit so
+        //   the first receiveBitManchester() call begins at the correct phase
+        //   (i.e. right at the end of the current bit's second half).
         delay(BIT_TIME_MS / 2);
 
-        // --- Consume remaining preamble bits (sync timing) ---
+        // Now consume the remaining 7 preamble bits:
         for (int i = 0; i < PREAMBLE_BITS - 1; i++) {
-            receiveBitManchester();
+            if (receiveBitManchester() < 0) {
+                drainUntilIdle();
+                return false;
+            }
         }
 
         // --- Read start delimiter ---
         int startByte = receiveByte();
         if (startByte != FRAME_START) {
-            Serial.printf("[RX] Bad start delimiter: 0x%02X\n", startByte);
+            if (startByte < 0) {
+                Serial.println("[RX] Start delimiter: decode timeout");
+            } else {
+                Serial.printf("[RX] Bad start delimiter: 0x%02X\n", (uint8_t)startByte);
+            }
+            drainUntilIdle();
             return false;
         }
 
@@ -232,11 +275,13 @@ public:
 
         if (src < 0 || dst < 0 || type < 0 || len < 0) {
             Serial.println("[RX] Header decode error");
+            drainUntilIdle();
             return false;
         }
 
         if (len > MAX_PAYLOAD_LEN) {
             Serial.println("[RX] Payload too long");
+            drainUntilIdle();
             return false;
         }
 
@@ -252,6 +297,7 @@ public:
                 Serial.print("[RX] Payload byte ");
                 Serial.print(i);
                 Serial.println(" decode error");
+                drainUntilIdle();
                 return false;
             }
             frame.payload[i] = (uint8_t)b;
@@ -262,6 +308,7 @@ public:
         int crcLo = receiveByte();
         if (crcHi < 0 || crcLo < 0) {
             Serial.println("[RX] CRC decode error");
+            drainUntilIdle();
             return false;
         }
         uint16_t receivedCRC = ((uint16_t)crcHi << 8) | (uint16_t)crcLo;
@@ -270,6 +317,7 @@ public:
         int endByte = receiveByte();
         if (endByte != FRAME_END) {
             Serial.println("[RX] Bad end delimiter");
+            drainUntilIdle();
             return false;
         }
 
@@ -287,6 +335,7 @@ public:
             Serial.print(receivedCRC, HEX);
             Serial.print(", expected 0x");
             Serial.println(computedCRC, HEX);
+            drainUntilIdle();
             return false;
         }
 

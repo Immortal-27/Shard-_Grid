@@ -45,6 +45,10 @@ const SerialBridge = {
         // Start reading loop
         this._readLoop();
 
+        // Wait for Arduino to finish rebooting after DTR reset
+        // The Uno bootloader holds for ~1.5-2s before running user sketch
+        await new Promise(resolve => setTimeout(resolve, 2500));
+
         return true;
     },
 
@@ -73,7 +77,11 @@ const SerialBridge = {
         if (!this.connected || !this.writer) {
             throw new Error('Not connected');
         }
-        await this.writer.write(data + '\n');
+        const payload = data + '\n';
+        console.log('[SerialBridge] TX:', JSON.stringify(payload), `(${payload.length} chars)`);
+        await this.writer.write(payload);
+        // Small delay to let the Arduino process the input buffer
+        await new Promise(resolve => setTimeout(resolve, 50));
     },
 
     // Send hex-encoded command
